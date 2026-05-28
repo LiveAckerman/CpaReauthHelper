@@ -1,0 +1,10 @@
+{
+  "name": "cpa-reauth-helper",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Chrome MV3 sidebar extension that batch re-authorizes CLIProxyAPI (CPA) codex accounts whose OAuth tokens have expired.",
+  "scripts": {
+    "test": "node -e \"const fs=require('fs');const files=fs.readdirSync('tests').filter(f=>f.endsWith('.test.js')).map(f=>'tests/'+f);require('child_process').execFileSync('node',['--test',...files],{stdio:'inherit'});\""
+  },
+  "license": "MIT"
+}

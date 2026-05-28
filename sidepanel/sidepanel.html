@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>CPA Reauth Helper</title>
+  <link rel="stylesheet" href="sidepanel.css" />
+</head>
+<body>
+  <header class="hdr">
+    <h1>CPA Reauth Helper</h1>
+    <div class="hdr-actions">
+      <button id="btn-collapse-settings" class="ghost" type="button">收起设置</button>
+    </div>
+  </header>
+
+  <section id="settings-panel" class="panel">
+    <h2>1. CPA 配置</h2>
+    <label class="row">
+      <span>CPA 地址</span>
+      <input id="input-base-url" type="url" placeholder="https://cpa.example.com" />
+    </label>
+    <label class="row">
+      <span>管理密钥</span>
+      <div class="input-with-eye">
+        <input id="input-management-key" type="password" placeholder="Bearer Token" />
+        <button id="btn-toggle-mgmt-key" type="button" class="ghost icon">👁</button>
+      </div>
+    </label>
+    <label class="row">
+      <span>账号统一密码</span>
+      <div class="input-with-eye">
+        <input id="input-shared-password" type="password" placeholder="所有邮箱共用的登录密码" />
+        <button id="btn-toggle-password" type="button" class="ghost icon">👁</button>
+      </div>
+    </label>
+    <label class="row">
+      <span>回调方式</span>
+      <select id="select-callback-mode">
+        <option value="local">本地拦截 localhost:1455 回调（推荐）</option>
+        <option value="manual" disabled>手动复制回调 URL（暂未实现）</option>
+      </select>
+    </label>
+    <div class="row actions">
+      <button id="btn-save-settings" type="button" class="primary">保存配置</button>
+      <button id="btn-ping-cpa" type="button">测试连通性</button>
+      <span id="ping-status" class="muted"></span>
+    </div>
+
+    <h2>2. 邮箱来源</h2>
+    <div class="row">
+      <label class="radio"><input type="radio" name="source" value="auto" checked /> 自动从 CPA 拉 unavailable 列表</label>
+      <label class="radio"><input type="radio" name="source" value="manual" /> 手动粘贴（按换行分隔）</label>
+    </div>
+
+    <div id="block-auto" class="row">
+      <button id="btn-fetch-unavailable" type="button" class="primary">从 CPA 拉取待重新授权的邮箱</button>
+      <span id="fetch-status" class="muted"></span>
+    </div>
+
+    <div id="block-manual" class="row" style="display:none;">
+      <textarea id="textarea-manual-emails" rows="6" placeholder="一行一个邮箱，支持逗号/分号/换行"></textarea>
+      <button id="btn-seed-manual" type="button">载入这批邮箱</button>
+    </div>
+  </section>
+
+  <section id="run-panel" class="panel">
+    <h2>3. 批量任务</h2>
+    <div class="summary" id="summary"></div>
+    <div class="current" id="current-info">
+      <span class="muted">当前邮箱：</span>
+      <span id="current-email">(空闲)</span>
+      <span id="current-step" class="step-pill"></span>
+    </div>
+
+    <div class="row actions">
+      <button id="btn-start" type="button" class="primary">开始 / 继续</button>
+      <button id="btn-stop" type="button">停止</button>
+      <button id="btn-retry-failed" type="button">重试失败</button>
+      <button id="btn-clear" type="button" class="danger">清空进度</button>
+      <button id="btn-force-reset" type="button" class="ghost" title="按钮卡住时点这个强制解锁运行标志">🔓 强制解锁</button>
+    </div>
+
+    <div class="entries-wrapper">
+      <table class="entries">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>邮箱</th>
+            <th>状态</th>
+            <th>次数</th>
+            <th>来源</th>
+            <th>错误</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="entries-tbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="log-panel" class="panel">
+    <h2>4. 实时日志</h2>
+    <div id="logs" class="logs"></div>
+  </section>
+
+  <script src="../shared/constants.js"></script>
+  <script src="sidepanel.js"></script>
+</body>
+</html>

@@ -1,0 +1,73 @@
+{
+  "manifest_version": 3,
+  "name": "CPA Reauth Helper",
+  "version": "0.1.0",
+  "description": "批量给 CPA codex 过期账号做 OAuth 重新授权。从 CPA 拉 unavailable=true 的账号列表，逐个自动登录 + OAuth 同意 + 回调上报。",
+  "permissions": [
+    "sidePanel",
+    "tabs",
+    "webNavigation",
+    "cookies",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://auth0.openai.com/*",
+    "https://auth.openai.com/*",
+    "https://accounts.openai.com/*",
+    "https://chatgpt.com/*",
+    "https://www.2925.com/*",
+    "https://mail.2925.com/*",
+    "https://*.2925.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "https://*/*",
+    "http://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel/sidepanel.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://auth0.openai.com/*",
+        "https://auth.openai.com/*",
+        "https://accounts.openai.com/*",
+        "https://chatgpt.com/*"
+      ],
+      "js": [
+        "shared/constants.js",
+        "content/openai-auth.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.2925.com/*",
+        "https://mail.2925.com/*",
+        "https://*.2925.com/*"
+      ],
+      "js": [
+        "shared/constants.js",
+        "content/mail-2925.js"
+      ],
+      "all_frames": true,
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
