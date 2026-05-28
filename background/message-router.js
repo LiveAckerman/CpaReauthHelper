@@ -28,13 +28,14 @@
       }
 
       case CPA_MSG.FETCH_UNAVAILABLE_EMAILS: {
-        // 探活 + 拉列表 + seed
+        // 探活 + 拉列表 + 逐个调 wham/usage 探测 + seed 真正需要重授权的
         try {
           const ping = await CpaReauthApi.pingCpa(await CpaReauthState.getSettings());
           if (!ping.ok) {
             return { ok: false, error: ping.error };
           }
-          const result = await CpaReauthBatchRunner.fetchUnavailableAndSeed();
+          const probeAll = message.payload?.probeAll === true;
+          const result = await CpaReauthBatchRunner.fetchUnavailableAndSeed({ probeAll });
           return { ok: true, ...result, ping };
         } catch (error) {
           return { ok: false, error: String(error?.message || error) };

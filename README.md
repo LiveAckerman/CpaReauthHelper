@@ -12,6 +12,7 @@ CPA 跑久了，OpenAI 的 OAuth token 会因为各种原因失效（refresh 失
 4. 把 `localhost:1455/auth/callback?code=...&state=...` 这条回调 URL 喂回 CPA `POST /v0/management/oauth-callback`
 
 100+ 账号挨个手点没法做，这扩展就是把这一整套自动化掉，包括：
+- **实地探测**确认账号是真死还是只是额度超（不再误把 quota-exceeded 当成 token 失效来重授权）
 - 自动清 cookie 避免 session 残留导致跳过登录页
 - 自动去 2925 邮箱接收 OpenAI 二次验证码
 - 自动识别「代码不正确」并用新邮件的码重试
@@ -41,7 +42,18 @@ CPA 跑久了，OpenAI 的 OAuth token 会因为各种原因失效（refresh 失
 
 两种模式：
 
-- **自动**：点「从 CPA 拉取待重新授权的邮箱」→ 会调 `GET /v0/management/auth-files` 把 `provider=codex && unavailable=true` 的邮箱拉过来。
+- **自动**：点「从 CPA 拉取待重新授权的邮箱」→ 会按下面这条「探测 → 分类 → 只 seed 真异常」的流水线跑：
+  1. `GET /v0/management/auth-files` 拉全量 codex 账号（含 unavailable=true 缓存视图）
+  2. 候选 = `unavailable=true` 的账号；勾选「深度探测（全量）」则对所有 codex 都探一遍
+  3. 对每个候选调 `POST /v0/management/api-call` 让 CPA 用该账号 token 实地请求 `https://chatgpt.com/backend-api/wham/usage`
+  4. 按 upstream 返回的 status code + body 分类：
+     - **2xx** → ✅ 正常（不拉进列表；缓存里 unavailable=true 但实地探测正常的，可能是 CPA 状态 stale）
+     - **429** 或正文含 `rate_limit / quota_exceeded / usage_limit` → 🟡 额度超（不拉进列表，**不算异常**）
+     - **401 / 403** → ⚠️ 异常（典型 token 失效，拉进列表）
+     - 其他 4xx/5xx → ⚠️ 异常（按用户口径，只要不是配额错都算异常）
+     - api-call 本身报「auth token refresh failed / not found」→ ⚠️ 异常（CPA 端 refresh token 都死了）
+  5. 只把 ⚠️ 异常 的邮箱 seed 进进度列表
+  实时日志显示 `[i/N] xxx@duck.com → ⚠️异常（HTTP 401，401）` 这种逐条进度。
 - **手动**：在 textarea 里粘邮箱（一行一个 / 逗号分号都行），点「载入这批邮箱」。
 
 两种模式可在「2. 邮箱来源」处切换。
@@ -69,6 +81,14 @@ CPA 跑久了，OpenAI 的 OAuth token 会因为各种原因失效（refresh 失
 按钮卡住时可用「🔓 强制解锁」逃生口重置 Service Worker 残留的运行标志。
 
 ## 关键设计点
+
+### 异常账号识别：实地探测而非只信缓存
+
+CPA 的 `unavailable` 标志只是「上次 refresh 失败」的快照，跑久了会有两种漂移：
+1. 标了 `unavailable=true` 但其实只是额度超 —— 这种账号重新授权也救不了（额度本来就用光了），反而浪费一次 OAuth
+2. 标了 `unavailable=false` 但已经过 OpenAI 风控失效 —— 缓存还没追上
+
+扩展用与 CPA 官方管理面板（cpamc.router-for.me）**相同的探测协议** 来实地确认：调 `POST /v0/management/api-call` 让 CPA 用该账号的 access_token 去请求 `https://chatgpt.com/backend-api/wham/usage`，按 upstream 的 HTTP 状态码 + body 文本来分类。这样最后进入重授权队列的只有「真的需要 OAuth 才能救」的账号。
 
 ### 邮箱二次验证：自动接码 + 防错码
 

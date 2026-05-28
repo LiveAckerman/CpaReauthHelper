@@ -203,16 +203,26 @@
   });
 
   btnFetchUnavailable.addEventListener('click', async () => {
-    fetchStatus.textContent = '拉取中…';
+    const probeAll = Boolean($('chk-probe-all')?.checked);
+    fetchStatus.textContent = probeAll ? '全量探测中…（可能要 1-2 分钟）' : '探测中…';
     fetchStatus.style.color = '#888';
-    await saveSettings({ silent: true });
-    const r = await send(CPA_MSG.FETCH_UNAVAILABLE_EMAILS);
-    if (r?.ok) {
-      fetchStatus.textContent = `✓ 已载入 ${r.count} 个待重新授权邮箱`;
-      fetchStatus.style.color = '#080';
-    } else {
-      fetchStatus.textContent = `✗ ${r?.error || '失败'}`;
-      fetchStatus.style.color = '#c00';
+    btnFetchUnavailable.disabled = true;
+    try {
+      await saveSettings({ silent: true });
+      const r = await send(CPA_MSG.FETCH_UNAVAILABLE_EMAILS, { probeAll });
+      if (r?.ok) {
+        const s = r.summary || {};
+        const detail = (typeof s.needsReauth === 'number')
+          ? `（待重授权 ${s.needsReauth || 0} / 额度超 ${s.quotaExceeded || 0} / 正常 ${s.healthy || 0} / 未知 ${s.unknown || 0}）`
+          : '';
+        fetchStatus.textContent = `✓ 已载入 ${r.count} 个待重新授权邮箱 ${detail}`;
+        fetchStatus.style.color = '#080';
+      } else {
+        fetchStatus.textContent = `✗ ${r?.error || '失败'}`;
+        fetchStatus.style.color = '#c00';
+      }
+    } finally {
+      btnFetchUnavailable.disabled = false;
     }
   });
 

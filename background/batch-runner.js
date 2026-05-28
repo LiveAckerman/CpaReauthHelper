@@ -152,16 +152,75 @@
   }
 
   /**
-   * 自动模式：从 CPA 拉 unavailable codex 列表，seed 到 progress
+   * 自动模式：从 CPA 拉所有 codex 账号 → 实地探测每个账号（POST api-call 调用 wham/usage）→
+   * 只把「确认失效」的账号 seed 到 progress。
+   *
+   * 流程（与用户口径对齐）：
+   *   1. listAuthFiles 拿全量 codex
+   *   2. **候选 = unavailable=true 的（缓存视图，先窄一下，省得对全量都探一遍）**
+   *      —— 如果用户传 probeAll=true，则对所有 codex 都探一遍（更彻底）
+   *   3. probeAllCodexCandidates：每个候选都调 wham/usage
+   *      - 2xx → healthy（缓存可能 stale，跳过，不拉进列表）
+   *      - 429 / 配额相关正文 → quota_exceeded（不算异常，跳过）
+   *      - 401/403/其他非配额错误 → needs_reauth（拉进列表）
+   *      - api-call 本身报「auth token refresh failed」→ 也算 needs_reauth（token 已死）
+   *   4. seedEntries 只填入 needs_reauth 的邮箱
    */
-  async function fetchUnavailableAndSeed() {
+  async function fetchUnavailableAndSeed(options = {}) {
+    const probeAll = options.probeAll === true;
+    const concurrency = Math.max(1, Math.min(8, Number(options.concurrency) || 4));
+
     const settings = await CpaReauthState.getSettings();
     const files = await CpaReauthApi.listAuthFiles(settings);
-    const emails = CpaReauthApi.pickReauthCandidatesFromAuthFiles(files);
-    await CpaReauthState.seedEntries(emails, { source: 'auto' });
-    await CpaReauthState.appendLog(`已从 CPA 拉取 ${emails.length} 个待重新授权邮箱`, 'ok');
+    const allCodex = CpaReauthApi.pickCodexCandidatesForProbing(files);
+    const candidates = probeAll ? allCodex : allCodex.filter((c) => c.unavailable === true);
+
+    await CpaReauthState.appendLog(
+      `已从 CPA 拉到 ${files.length} 个 auth-file（codex ${allCodex.length} 个，本次将探测 ${candidates.length} 个${probeAll ? '（全量）' : '（仅缓存里 unavailable=true）'}）`,
+    );
+
+    if (candidates.length === 0) {
+      await CpaReauthState.seedEntries([], { source: 'auto' });
+      await CpaReauthState.appendLog('没有需要探测的 codex 账号。', 'warn');
+      await CpaReauthState.broadcastStateUpdated();
+      return { count: 0, emails: [], summary: { healthy: 0, quotaExceeded: 0, needsReauth: 0, unknown: 0 } };
+    }
+
+    const startMs = Date.now();
+    const { results, summary } = await CpaReauthApi.probeAllCodexCandidates(settings, candidates, {
+      concurrency,
+      shouldStop,
+      onProgress: async ({ index, total, cand, result }) => {
+        const cls = result.classification;
+        const tag = cls.status === 'needs_reauth' ? '⚠️异常'
+          : cls.status === 'quota_exceeded' ? '🟡额度超'
+          : cls.status === 'healthy' ? '✅正常'
+          : '❓未知';
+        const detail = result.error ? `（${result.error}）` : `（HTTP ${result.statusCode}，${cls.reason}）`;
+        const level = cls.status === 'needs_reauth' ? 'warn' : cls.status === 'unknown' ? 'warn' : 'info';
+        await CpaReauthState.appendLog(`[${index + 1}/${total}] ${cand.email} → ${tag}${detail}`, level);
+      },
+    });
+
+    const needsReauthEmails = results
+      .filter((r) => r?.classification?.status === 'needs_reauth')
+      .map((r) => r.cand.email);
+
+    await CpaReauthState.seedEntries(needsReauthEmails, { source: 'auto' });
+
+    const elapsed = ((Date.now() - startMs) / 1000).toFixed(1);
+    await CpaReauthState.appendLog(
+      `探测完成（${elapsed}s）：待重授权 ${summary.needsReauth} / 额度超 ${summary.quotaExceeded} / 正常 ${summary.healthy} / 未知 ${summary.unknown}`,
+      'ok',
+    );
     await CpaReauthState.broadcastStateUpdated();
-    return { count: emails.length, emails };
+    return {
+      count: needsReauthEmails.length,
+      emails: needsReauthEmails,
+      summary,
+      probedTotal: candidates.length,
+      codexTotal: allCodex.length,
+    };
   }
 
   /**
