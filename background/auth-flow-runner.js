@@ -160,6 +160,9 @@
 
   async function waitForPageState(tabId, expectedStates, timeoutMs) {
     const expected = new Set(Array.isArray(expectedStates) ? expectedStates : [expectedStates]);
+    // phone_verification 是「致命终止」状态 —— 任何 waitForPageState 调用一旦观察到，
+    // 都立刻返回，让上层抛错跳过该账号，避免白等 25s 超时再处理。
+    expected.add('phone_verification');
     const start = Date.now();
     let last = { state: 'unknown' };
     while (Date.now() - start < timeoutMs) {
@@ -170,6 +173,16 @@
       await new Promise((r) => setTimeout(r, 400));
     }
     return last;
+  }
+
+  // 任何观察到 phone_verification 的地方立刻抛错，让上层走失败收尾路径。
+  // 错误文案要明确告诉用户「人为去开通 / 换号」，否则用户看到「失败」会一头雾水。
+  function throwIfPhoneVerification(snap, context) {
+    if (snap && snap.state === 'phone_verification') {
+      throw new Error(
+        `OpenAI 风控要求手机号二次验证（${context}），本扩展无法自动化，已跳过该账号。请人工到 ${snap.url || 'https://auth.openai.com/phone-verification'} 完成验证后重试，或换其他账号。`,
+      );
+    }
   }
 
   // ---------- localhost 回调拦截 ----------
@@ -305,6 +318,7 @@
     while (Date.now() < deadline) {
       last = await inspectPage(tabId);
       if (last?.state === 'oauth_consent') return last;
+      if (last?.state === 'phone_verification') return last;   // 让外层 throwIfPhoneVerification 处理
       if (last?.state === 'email_verification' && last.hasError === true) return last;
       await new Promise((r) => setTimeout(r, 500));
     }
@@ -394,6 +408,7 @@
       await activateTab(tabId); // 后台 tab Vue 可能不渲染，激活保证页面正常加载
       const emailPageSnap = await waitForPageState(tabId, ['email', 'password', 'oauth_consent'], CPA_FILL_EMAIL_TIMEOUT_MS);
       checkAbort();
+      throwIfPhoneVerification(emailPageSnap, '打开授权页');
       if (emailPageSnap.state === 'email') {
         await CpaReauthState.setRunning({ currentStep: 'fill_email' });
         await log('检测到邮箱输入页，正在填写...');
@@ -411,6 +426,7 @@
       await activateTab(tabId);
       const pwSnap = await waitForPageState(tabId, ['password', 'oauth_consent', 'email_verification'], CPA_FILL_PASSWORD_TIMEOUT_MS);
       checkAbort();
+      throwIfPhoneVerification(pwSnap, '提交邮箱后');
       if (pwSnap.state === 'password') {
         await CpaReauthState.setRunning({ currentStep: 'fill_password' });
         await log('检测到密码页，正在填写...');
@@ -429,6 +445,7 @@
       await activateTab(tabId);
       const postPwSnap = await waitForPageState(tabId, ['oauth_consent', 'email_verification'], CPA_OAUTH_CONSENT_TIMEOUT_MS);
       checkAbort();
+      throwIfPhoneVerification(postPwSnap, '提交密码后');
       if (postPwSnap.state === 'email_verification') {
         await CpaReauthState.setRunning({ currentStep: 'fetching_2925_code' });
         const recipient = (postPwSnap.recipientEmail || email || '').toLowerCase();
@@ -506,6 +523,7 @@
           await activateTab(tabId);
           const postFillSnap = await waitForPostCodeSubmit(tabId);
           checkAbort();
+          throwIfPhoneVerification(postFillSnap, '提交邮箱验证码后');
           if (postFillSnap.state === 'oauth_consent') {
             codeAccepted = true;
             await log('验证码被 OpenAI 接受，已跳转到 OAuth 同意页。');
@@ -534,6 +552,7 @@
       await activateTab(tabId);
       const consentSnap = await waitForPageState(tabId, ['oauth_consent'], CPA_OAUTH_CONSENT_TIMEOUT_MS);
       checkAbort();
+      throwIfPhoneVerification(consentSnap, '准备 OAuth 同意页时');
       if (consentSnap.state === 'oauth_consent') {
         await CpaReauthState.setRunning({ currentStep: 'confirm_oauth' });
         await log('检测到 OAuth 同意页，正在点击同意...');

@@ -166,6 +166,16 @@
     return /检查你的收件箱|check your inbox|输入我们.*发送的验证码|enter the verification code/i.test(bodyText);
   }
 
+  // /phone-verification 页面识别：OpenAI 风控要求手机号二次验证（OTP / SMS）。
+  // 这种账号我们无法自动化（没有手机号池），扩展直接跳过 + 把失败原因标清楚。
+  function isPhoneVerificationPage() {
+    const path = location.pathname || '';
+    if (/\/phone-verification(?:[/?#]|$)/i.test(path)) return true;
+    // 兜底：URL 没命中但页面文本明显是要手机号验证
+    const bodyText = String(document.body?.innerText || '').slice(0, 1200);
+    return /verify\s+your\s+phone|enter\s+your\s+phone\s+number|手机号(?:码)?验证|验证您的手机|输入您的手机号|请输入手机号|短信验证码|sms\s+verification/i.test(bodyText);
+  }
+
   function findOAuthConsentButton() {
     // OpenAI 的 OAuth 同意页通常是 "Authorize / Continue / 继续 / 确认"
     const pattern = /^(?:authorize|authorise|continue|confirm|allow|确认|继续|授权|允许|同意)$/i;
@@ -185,6 +195,13 @@
   function inspectPage() {
     const url = location.href;
     const path = location.pathname || '';
+
+    // 手机号验证页 —— 我们不支持，直接抛 phone_verification 让 background 跳过这个账号。
+    // 必须放在最前面（在 email/password/email_verification/oauth 检查之前），
+    // 因为这个页面可能也有 input 元素，会被误判成 email 页。
+    if (isPhoneVerificationPage()) {
+      return { state: 'phone_verification', url };
+    }
 
     // OAuth 同意页
     if (/\/(?:oauth|authorize|consent)/i.test(path)) {
